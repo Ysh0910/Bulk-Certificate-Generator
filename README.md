@@ -170,3 +170,21 @@ With additional development time, valuable extensions to this architecture would
 3. **Cloud Object Storage (AWS S3 / GCP Cloud Storage)**: Uploading generated PDFs directly to S3/GCS buckets with presigned URLs instead of relying on local volume mounts.
 4. **Webhooks & Email Dispatch**: Outbound webhook alerts or automated email dispatch with attached certificates upon recipient completion.
 5. **Rate Limiting & Authentication**: API key authentication and token-bucket rate limiting on the `/api/jobs/` submission endpoint to prevent queue flooding.
+
+---
+
+## Frontend
+
+A dedicated React + TypeScript frontend built with Vite and Tailwind CSS is available in the [`frontend/`](file:///c:/Users/yash5/Desktop/Projects/Aereo/frontend) directory. It provides a clean donor ledger interface to record recipients, observe live generation progress, and download generated certificates individually or in bulk.
+
+### Running the Frontend
+
+> **Prerequisite**: Ensure the FastAPI backend is running separately at `http://localhost:8000`.
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+The frontend will run at: **`http://localhost:5173`**
