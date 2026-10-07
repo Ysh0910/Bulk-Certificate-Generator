@@ -1,0 +1,47 @@
+# Virtual Environments
+.venv/
+venv/
+env/
+ENV/
+
+# Environment Variables & Secrets (Keep .env private!)
+.env
+*.env
+!.env.example
+
+# Python bytecode & caches
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Testing & Linters
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local database files & logs
+*.db
+*.sqlite
+*.sqlite3
+*.log
+
+# Generated certificates & archives (Keep .gitkeep)
+app/generated/*
+!app/generated/.gitkeep
+cert-generator/app/generated/*
+!cert-generator/app/generated/.gitkeep
+*.pdf
+*.zip
+
+# Templates (Keep .gitkeep)
+app/templates/*
+!app/templates/.gitkeep
+cert-generator/app/templates/*
+!cert-generator/app/templates/.gitkeep
+
+# IDE and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
