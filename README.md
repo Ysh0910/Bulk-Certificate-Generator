@@ -8,7 +8,7 @@ A high-throughput, resilient certificate generation backend built with FastAPI, 
 
 1. **Clone the repository**:
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/Ysh0910/Bulk-Certificate-Generator
    cd cert-generator
    ```
 
