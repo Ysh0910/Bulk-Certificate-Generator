@@ -133,3 +133,30 @@ def test_recipients_list_endpoint(client):
     for r in recipients:
         assert r["status"] == "SUCCESS"
         assert r["generated_at"] is not None
+
+
+def test_idempotent_job_submission(client, db_session):
+    """Submitting with the same Idempotency-Key within 24h returns the existing job without duplicates."""
+    payload = {
+        "recipients": [
+            {"name": "Idempotent Donor", "email": "donor@example.com"}
+        ],
+    }
+    headers = {"Idempotency-Key": "unique-batch-key-999"}
+
+    # First submission
+    res1 = client.post("/api/jobs/", json=payload, headers=headers)
+    assert res1.status_code == 202
+    job_id_1 = res1.json()["id"]
+
+    # Duplicate submission with same key
+    res2 = client.post("/api/jobs/", json=payload, headers=headers)
+    assert res2.status_code == 202
+    job_id_2 = res2.json()["id"]
+
+    # Must return the exact same job ID
+    assert job_id_1 == job_id_2
+
+    # Assert only 1 CertificateJob was created in the database
+    job_count = db_session.query(CertificateJob).filter(CertificateJob.idempotency_key == "unique-batch-key-999").count()
+    assert job_count == 1

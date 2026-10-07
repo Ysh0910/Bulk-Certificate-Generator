@@ -14,6 +14,7 @@ class CertificateJob(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     total_count = Column(Integer, nullable=False)
     template_name = Column(String, default="default", nullable=False)
+    idempotency_key = Column(String, index=True, nullable=True)
 
     # IMPORTANT: Do NOT add a status/success_count/failure_count column here.
     # Job status is deliberately computed live from CertificateRecipient rows at

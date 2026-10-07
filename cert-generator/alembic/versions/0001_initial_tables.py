@@ -25,8 +25,10 @@ def upgrade() -> None:
         sa.Column('created_at', sa.DateTime(), nullable=False),
         sa.Column('total_count', sa.Integer(), nullable=False),
         sa.Column('template_name', sa.String(), nullable=False),
+        sa.Column('idempotency_key', sa.String(), nullable=True),
         sa.PrimaryKeyConstraint('id')
     )
+    op.create_index('ix_certificate_jobs_idempotency_key', 'certificate_jobs', ['idempotency_key'], unique=False)
     op.create_table(
         'certificate_recipients',
         sa.Column('id', postgresql.UUID(as_uuid=True), nullable=False),

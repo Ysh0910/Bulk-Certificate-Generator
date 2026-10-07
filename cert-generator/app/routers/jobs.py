@@ -1,5 +1,7 @@
+from datetime import datetime, timedelta
+from typing import Optional
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -13,18 +15,41 @@ router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
 @router.post("/", status_code=status.HTTP_202_ACCEPTED, response_model=JobCreateOut)
 @router.post("", status_code=status.HTTP_202_ACCEPTED, response_model=JobCreateOut, include_in_schema=False)
-def create_job(job_in: JobCreateIn, db: Session = Depends(get_db)):
-    """Create a new certificate job and dispatch individual generation tasks."""
+def create_job(
+    job_in: JobCreateIn,
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
+    db: Session = Depends(get_db),
+):
+    """Create a new certificate job and dispatch individual generation tasks.
+
+    Supports an optional 'Idempotency-Key' header. If the exact same key is submitted
+    within 24 hours, the existing job is returned without re-dispatching duplicate tasks.
+    """
     if not job_in.recipients:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Recipients list cannot be empty.",
         )
 
+    # Idempotency check: return existing job if submitted within the last 24 hours
+    if idempotency_key:
+        cutoff = datetime.utcnow() - timedelta(hours=24)
+        existing_job = (
+            db.query(CertificateJob)
+            .filter(
+                CertificateJob.idempotency_key == idempotency_key,
+                CertificateJob.created_at >= cutoff,
+            )
+            .first()
+        )
+        if existing_job:
+            return JobCreateOut(id=existing_job.id, total_count=existing_job.total_count)
+
     # In a single DB transaction: create CertificateJob and bulk-create recipients
     job = CertificateJob(
         total_count=len(job_in.recipients),
         template_name=job_in.template_name or "default",
+        idempotency_key=idempotency_key,
     )
     db.add(job)
     db.flush()
