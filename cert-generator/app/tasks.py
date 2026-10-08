@@ -27,8 +27,13 @@ logger = logging.getLogger(__name__)
 def generate_certificate_task(self, recipient_id: str) -> None:
     """Generate certificate PDF for a single recipient and update status in database.
 
-    Includes task-level idempotency (skips re-processing if already SUCCESS)
-    and automatic retry with exponential backoff for transient failures.
+    Concurrency & Idempotency:
+    - Message delivery in Celery is at-least-once, meaning duplicate task delivery
+      or worker restarts can cause the same recipient to be picked up multiple times.
+    - Uses SELECT ... FOR UPDATE SKIP LOCKED to prevent race conditions across concurrent workers.
+    - If status is already SUCCESS, generation is safely skipped.
+    - Output file paths are deterministic ({recipient_id}.pdf) so re-runs overwrite cleanly.
+    - Automatic retry with exponential backoff applies only to transient failures.
     """
     # Ensure generated output directory exists at runtime
     os.makedirs(settings.GENERATED_DIR, exist_ok=True)
@@ -42,9 +47,24 @@ def generate_certificate_task(self, recipient_id: str) -> None:
             logger.error("Invalid recipient_id UUID format: %s", recipient_id)
             return
 
-        recipient = db.query(CertificateRecipient).filter(CertificateRecipient.id == lookup_id).first()
+        # Pessimistic row-lock: only one worker processes this recipient row at a time.
+        # Other workers encounter SKIP LOCKED and return immediately without duplicating work.
+        recipient = (
+            db.query(CertificateRecipient)
+            .filter(CertificateRecipient.id == lookup_id)
+            .with_for_update(skip_locked=True)
+            .first()
+        )
         if not recipient:
-            logger.warning("CertificateRecipient not found for id: %s", recipient_id)
+            # Differentiate between non-existent row vs row locked by another active worker
+            exists = db.query(CertificateRecipient.id).filter(CertificateRecipient.id == lookup_id).first()
+            if exists:
+                logger.info(
+                    "Recipient %s is currently locked by another active worker. Skipping duplicate execution.",
+                    recipient_id,
+                )
+            else:
+                logger.warning("CertificateRecipient not found for id: %s", recipient_id)
             return
 
         # Task Idempotency Guard: skip if already successfully generated
@@ -61,6 +81,7 @@ def generate_certificate_task(self, recipient_id: str) -> None:
             if job and job.template_name:
                 template_name = job.template_name
 
+        # Deterministic output path guarantees idempotent file writes on retry
         output_path = f"{settings.GENERATED_DIR}/{recipient_id}.pdf"
         template_path = f"{settings.TEMPLATES_DIR}/{template_name}.png"
 
@@ -76,15 +97,16 @@ def generate_certificate_task(self, recipient_id: str) -> None:
             recipient.error_message = None
             recipient.generated_at = datetime.utcnow()
         except InvalidRecipientError as exc:
-            # Permanent validation error (e.g. missing name): do not retry
+            # Permanent validation error (e.g. blank name): do not retry
             logger.warning("Permanent validation error for recipient %s: %s", recipient_id, exc)
             recipient.status = "FAILED"
             recipient.error_message = str(exc)[:500]
         except Retry:
             raise
         except Exception as exc:
-            # Transient error: retry with exponential backoff if attempts remain
-            if self.request.retries < self.max_retries:
+            # Transient error: retry with exponential backoff if attempts remain and running under a worker daemon
+            is_eager = getattr(self.request, "is_eager", False)
+            if self.request.retries < self.max_retries and not is_eager:
                 countdown = 2 ** self.request.retries
                 logger.warning(
                     "Transient error for recipient %s: %s. Retrying in %ds (attempt %d/%d)...",
@@ -94,11 +116,13 @@ def generate_certificate_task(self, recipient_id: str) -> None:
                     self.request.retries + 1,
                     self.max_retries,
                 )
+                db.rollback()
                 db.close()
+                recipient = None
                 raise self.retry(exc=exc, countdown=countdown)
 
-            # Max retries exhausted
-            logger.exception("Max retries exceeded for recipient %s: %s", recipient_id, exc)
+            # Max retries exhausted (or synchronous execution in test environment)
+            logger.exception("Task error for recipient %s: %s", recipient_id, exc)
             recipient.status = "FAILED"
             recipient.error_message = str(exc)[:500]
 
@@ -109,4 +133,6 @@ def generate_certificate_task(self, recipient_id: str) -> None:
             except Exception:
                 db.rollback()
                 logger.exception("Failed to commit recipient update for %s", recipient_id)
-        db.close()
+            finally:
+                db.close()
+

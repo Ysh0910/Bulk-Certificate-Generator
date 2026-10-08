@@ -2,6 +2,7 @@ import io
 import uuid
 import zipfile
 import pytest
+from app.models import CertificateJob, CertificateRecipient
 
 
 def test_retrieve_generated_certificate(client):
@@ -46,6 +47,32 @@ def test_retrieve_certificate_for_failed_recipient_409(client):
     assert "generation failed" in cert_res.json()["detail"].lower()
 
 
+def test_retrieve_certificate_for_pending_recipient_409(client, db_session):
+    """A recipient that is still in PENDING status returns 409 Conflict."""
+    job = CertificateJob(total_count=1, template_name="default")
+    db_session.add(job)
+    db_session.flush()
+
+    rec = CertificateRecipient(
+        job_id=job.id,
+        name="Pending Person",
+        email="pending@example.com",
+        status="PENDING",
+    )
+    db_session.add(rec)
+    db_session.commit()
+
+    cert_res = client.get(f"/api/certificates/{rec.id}/")
+    assert cert_res.status_code == 409
+    assert "pending" in cert_res.json()["detail"].lower()
+
+
+def test_retrieve_certificate_malformed_uuid_422(client):
+    """GET /api/certificates/{invalid-uuid}/ returns 422 Unprocessable Entity."""
+    res = client.get("/api/certificates/invalid-recipient-id/")
+    assert res.status_code == 422
+
+
 def test_bulk_zip_download(client):
     """GET /api/jobs/{id}/certificates/download returns zip containing all successful certificate PDFs."""
     create_res = client.post("/api/jobs/", json={
@@ -68,3 +95,25 @@ def test_bulk_zip_download(client):
         assert len(file_names) == 2
         assert "Winner One.pdf" in file_names
         assert "Winner Two.pdf" in file_names
+
+
+def test_bulk_zip_download_unknown_job_404(client):
+    """GET /api/jobs/{random_uuid}/certificates/download returns 404 Not Found."""
+    random_id = str(uuid.uuid4())
+    res = client.get(f"/api/jobs/{random_id}/certificates/download")
+    assert res.status_code == 404
+
+
+def test_bulk_zip_download_no_success_404(client):
+    """GET /api/jobs/{id}/certificates/download when no certificates succeeded returns 404 Not Found."""
+    create_res = client.post("/api/jobs/", json={
+        "recipients": [
+            {"name": "", "email": "fail1@example.com"},
+            {"name": "   ", "email": "fail2@example.com"},
+        ],
+    })
+    job_id = create_res.json()["id"]
+
+    res = client.get(f"/api/jobs/{job_id}/certificates/download")
+    assert res.status_code == 404
+    assert "No successfully generated certificates" in res.json()["detail"]

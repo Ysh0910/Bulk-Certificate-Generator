@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, JSON, String
+from sqlalchemy import Column, DateTime, ForeignKey, Index, Integer, JSON, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -14,13 +14,13 @@ class CertificateJob(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     total_count = Column(Integer, nullable=False)
     template_name = Column(String, default="default", nullable=False)
-    idempotency_key = Column(String, index=True, nullable=True)
+    idempotency_key = Column(String, unique=True, index=True, nullable=True)
+    payload_hash = Column(String, nullable=True)
 
-    # IMPORTANT: Do NOT add a status/success_count/failure_count column here.
-    # Job status is deliberately computed live from CertificateRecipient rows at
-    # read time (not stored/synced) — this avoids race conditions between Celery
-    # workers and keeps a single source of truth. This will be implemented in Part 3.
-
+    # Status is deliberately computed live via database aggregation (GROUP BY)
+    # on CertificateRecipient rows rather than stored on the job record.
+    # This completely eliminates write contention, row-locking bottlenecks,
+    # and race conditions between concurrent Celery workers.
     recipients = relationship("CertificateRecipient", back_populates="job", cascade="all, delete-orphan")
 
 
@@ -28,7 +28,7 @@ class CertificateRecipient(Base):
     __tablename__ = "certificate_recipients"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    job_id = Column(UUID(as_uuid=True), ForeignKey("certificate_jobs.id", ondelete="CASCADE"), nullable=False)
+    job_id = Column(UUID(as_uuid=True), ForeignKey("certificate_jobs.id", ondelete="CASCADE"), nullable=False, index=True)
     name = Column(String, nullable=False)
     email = Column(String, nullable=False)
     extra_fields = Column(JSON, default=dict, nullable=False)
@@ -38,3 +38,8 @@ class CertificateRecipient(Base):
     generated_at = Column(DateTime, nullable=True)
 
     job = relationship("CertificateJob", back_populates="recipients")
+
+    __table_args__ = (
+        Index("ix_certificate_recipients_job_id_status", "job_id", "status"),
+    )
+

@@ -13,7 +13,7 @@ A high-throughput, resilient certificate generation backend built with FastAPI, 
    ```
 
 2. **Configure environment variables**:
-   Create a `.env` file from [.env.example](file:///c:/Users/yash5/Desktop/Projects/Aereo/cert-generator/.env.example):
+   Create a `.env` file from [.env.example](.env.example):
    ```bash
    cp .env.example .env
    ```
@@ -158,7 +158,7 @@ curl -X GET http://localhost:8000/api/jobs/e6a4b3d8-5c91-4cfa-81a2-7fa3456789ab/
 - **Live-Computed Job Status (No Counter Columns on Job)**: Job status (`overall_status`, `success_count`, `failure_count`, `pending_count`) is calculated on the fly from `CertificateRecipient` rows via database aggregation (`group_by`) when read. Eliminating counters and status fields on the parent `CertificateJob` table eliminates database lock contention and race conditions when dozens of Celery workers process recipients simultaneously.
 - **24-Hour API Idempotency & Task Retries**: The `POST /api/jobs/` endpoint accepts an `Idempotency-Key` header. If the exact same key is submitted within 24 hours, the server immediately returns the existing job ID without duplicating rows or re-dispatching tasks. Additionally, Celery tasks implement task-level idempotency (skipping already-generated `SUCCESS` certificates) and exponential backoff retries for transient exceptions (`max_retries=3`), while failing permanently without retry on validation errors.
 - **Pillow for Certificate Generation**: Pillow was chosen because it is pure Python/C-wheel based with zero reliance on heavy external system libraries (unlike WeasyPrint or headless browser solutions which require Cairo, Pango, or Chromium). This keeps Docker build times extremely fast, avoids binary bloat, and allows procedural on-the-fly certificate generation even when no template image file is provided.
-- **One-Command Docker Compose**: The entire multi-service stack (`api`, `worker`, `db`, and `redis`) is unified in [docker-compose.yml](file:///c:/Users/yash5/Desktop/Projects/Aereo/cert-generator/docker-compose.yml) with health checks. This guarantees anyone evaluating or running the project can start the complete environment with a single `docker compose up` command without manual dependency installations or service management.
+- **One-Command Docker Compose**: The entire multi-service stack (`api`, `worker`, `db`, and `redis`) is unified in [docker-compose.yml](docker-compose.yml) with health checks. This guarantees anyone evaluating or running the project can start the complete environment with a single `docker compose up` command without manual dependency installations or service management.
 
 ---
 

@@ -1,0 +1,11 @@
+# Local Development Overrides
+# Automatically loaded by Docker Compose in local development environments
+services:
+  api:
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ./app:/code/app
+
+  worker:
+    volumes:
+      - ./app:/code/app
